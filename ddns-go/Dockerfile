@@ -1,5 +1,5 @@
 # https://developers.home-assistant.io/docs/add-ons/configuration#build-from
-ARG BUILD_FROM=ghcr.io/home-assistant/base:3.23
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21
 FROM ${BUILD_FROM}
 
 # ddns-go 官方版本号（GitHub Actions 自动更新此值）

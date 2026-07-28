@@ -12,7 +12,66 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-publish:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            base_image: ghcr.io/home-assistant/amd64-base:3.21
+          - arch: aarch64
+            platform: linux/arm64
+            base_image: ghcr.io/home-assistant/aarch64-base:3.21
+          - arch: armv7
+            platform: linux/arm/v7
+            base_image: ghcr.io/home-assistant/armv7-base:3.21
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get latest ddns-go version
+        id: latest
+        run: |
+          LATEST=$(curl -fsSL \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/jeessy2/ddns-go/releases/latest \
+            | jq -r '.tag_name' | sed 's/^v//')
+          echo "version=${LATEST}" >> $GITHUB_OUTPUT
+          echo "Latest version: ${LATEST}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push single-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: ddns-go
+          file: ddns-go/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ghcr.io/waidosia/ddns-go:${{ matrix.arch }}-latest
+          build-args: |
+            DDNS_GO_VERSION=${{ steps.latest.outputs.version }}
+            BUILD_FROM=${{ matrix.base_image }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
+
+  manifest:
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -31,16 +90,6 @@ jobs:
           echo "version=${LATEST}" >> $GITHUB_OUTPUT
           echo "Latest version: ${LATEST}"
 
-      - name: Get current version
-        id: current
-        run: |
-          CURRENT=$(grep '^version:' ddns-go/config.yaml | awk -F'"' '{print $2}')
-          echo "version=${CURRENT}" >> $GITHUB_OUTPUT
-          echo "Current version: ${CURRENT}"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -51,37 +100,33 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push multi-arch image
-        uses: docker/build-push-action@v6
-        with:
-          context: ddns-go
-          file: ddns-go/Dockerfile
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
-          tags: |
-            ghcr.io/waidosia/ddns-go:latest
-            ghcr.io/waidosia/ddns-go:${{ steps.latest.outputs.version }}
-          build-args: |
-            DDNS_GO_VERSION=${{ steps.latest.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create and push multi-arch manifest (latest)
+        run: |
+          docker buildx imagetools create -t ghcr.io/waidosia/ddns-go:latest \
+            ghcr.io/waidosia/ddns-go:amd64-latest \
+            ghcr.io/waidosia/ddns-go:aarch64-latest \
+            ghcr.io/waidosia/ddns-go:armv7-latest
+
+      - name: Create and push multi-arch manifest (version)
+        run: |
+          docker buildx imagetools create -t ghcr.io/waidosia/ddns-go:${{ steps.latest.outputs.version }} \
+            ghcr.io/waidosia/ddns-go:amd64-latest \
+            ghcr.io/waidosia/ddns-go:aarch64-latest \
+            ghcr.io/waidosia/ddns-go:armv7-latest
 
       - name: Update version in config files
-        if: steps.latest.outputs.version != steps.current.outputs.version
         run: |
           VERSION="${{ steps.latest.outputs.version }}"
-          sed -i "s/^version:.*/version: \"${VERSION}\"/" ddns-go/config.yaml
-          sed -i "s/ARG DDNS_GO_VERSION=.*/ARG DDNS_GO_VERSION=\"${VERSION}\"/" ddns-go/Dockerfile
-          echo "=== Updated config.yaml ==="
-          head -5 ddns-go/config.yaml
-          echo "=== Updated Dockerfile ==="
-          grep "ARG DDNS_GO_VERSION" ddns-go/Dockerfile
-
-      - name: Commit version bump
-        if: steps.latest.outputs.version != steps.current.outputs.version
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ddns-go/config.yaml ddns-go/Dockerfile
-          git commit -m "chore: bump ddns-go to v${{ steps.latest.outputs.version }}"
-          git push
+          CURRENT=$(grep '^version:' ddns-go/config.yaml | awk -F'"' '{print $2}')
+          if [ "$VERSION" != "$CURRENT" ]; then
+            sed -i "s/^version:.*/version: \"${VERSION}\"/" ddns-go/config.yaml
+            sed -i "s/ARG DDNS_GO_VERSION=.*/ARG DDNS_GO_VERSION=\"${VERSION}\"/" ddns-go/Dockerfile
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add ddns-go/config.yaml ddns-go/Dockerfile
+            git commit -m "chore: bump ddns-go to v${VERSION} [skip ci]"
+            git push
+            echo "Bumped version to ${VERSION}"
+          else
+            echo "Version already up to date: ${VERSION}"
+          fi
