@@ -1,4 +1,5 @@
-ARG BUILD_FROM
+# https://developers.home-assistant.io/docs/add-ons/configuration#build-from
+ARG BUILD_FROM=ghcr.io/home-assistant/base:3.23
 FROM ${BUILD_FROM}
 
 # ddns-go 官方版本号（GitHub Actions 自动更新此值）
@@ -23,8 +24,14 @@ RUN \
     && chmod +x /usr/local/bin/ddns-go \
     && rm -rf /tmp/ddns-go*
 
-# 复制启动脚本
-COPY run.sh /run.sh
+# 复制 rootfs（包含 run.sh 等脚本）
+COPY rootfs /
+
 RUN chmod a+x /run.sh
+
+LABEL \
+    org.opencontainers.image.title="Home Assistant Add-on: DDNS-GO" \
+    org.opencontainers.image.description="自动获取公网 IPv4/IPv6 地址，并更新到 Cloudflare、DNSPod 等 DNS 服务商" \
+    org.opencontainers.image.source="https://github.com/waidosia/hassio-addons"
 
 CMD [ "/run.sh" ]
