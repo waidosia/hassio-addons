@@ -5,6 +5,7 @@ slug: ddns-go
 description: >-
   自动获取公网 IPv4/IPv6 地址，并更新到 Cloudflare、DNSPod 等 DNS 服务商
 url: https://github.com/waidosia/hassio-addons/tree/main/ddns-go
+image: "ghcr.io/waidosia/ddns-go"
 arch:
   - amd64
   - aarch64
