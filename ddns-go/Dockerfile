@@ -3,7 +3,7 @@ ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21
 FROM ${BUILD_FROM}
 
 # ddns-go 官方版本号（GitHub Actions 自动更新此值）
-ARG DDNS_GO_VERSION="6.17.6"
+ARG DDNS_GO_VERSION="6.17.7"
 
 # 下载官方二进制文件
 RUN \
